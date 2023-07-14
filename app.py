@@ -251,7 +251,8 @@ def get_audio_file(text_for_voice):
     channels = 1  # Mono audio
 
     current_time_str = time.asctime( time.localtime(time.time()))
-    wav_file_path = "output_" + str(current_time_str)
+    folder = '/Users/devendra.choudhary/Downloads/'
+    wav_file_path = folder + "output_" + str(current_time_str) + ".wav"
     # Create a new WAV file
     with wave.open(wav_file_path, "wb") as wav_file:
         # Set the WAV file parameters
