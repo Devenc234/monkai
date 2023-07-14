@@ -221,7 +221,7 @@ def upload_file():
         filename = file.filename
         current_time_str = time.asctime( time.localtime(time.time()))
         full_file_name = str(current_time_str) + filename
-        file.save()
+        file.save(full_file_name)
         print('File saved successfully.')
         audio_text = do_processing_of_audio_file(full_file_name)
         return audio_text
