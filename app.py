@@ -5,8 +5,11 @@ from urllib import request
 import http.client
 import json
 import os
+import azure.cognitiveservices.speech as speechsdk
 from flask import Flask, flash, request, redirect, url_for
 from werkzeug.utils import secure_filename
+import wave
+import azure.cognitiveservices.speech as speechsdk
 
 UPLOAD_FOLDER = '/Users/devendra.choudhary/Downloads/'
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif','wav'}
@@ -230,7 +233,36 @@ def get_summary_of_product(text_for_voice):
 
 
 def get_audio_file(text_for_voice):
-    pass
+    # Creates an instance of a speech config with specified subscription key and service region.
+    speech_key = "b2e7cf685d92496e95f0a310e0642883"
+    service_region = "eastasia"
+
+    speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=service_region)
+    # Note: the voice setting will not overwrite the voice element in input SSML.
+    speech_config.speech_synthesis_voice_name = "en-IN-NeerjaNeural"
+
+    speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
+
+    result = speech_synthesizer.speak_text_async(text_for_voice).get().audio_data
+
+
+    sample_width = 2  # Assuming 16-bit audio
+    sample_rate = 16000  # Assuming 44.1 kHz
+    channels = 1  # Mono audio
+
+    current_time_str = time.asctime( time.localtime(time.time()))
+    wav_file_path = "output_" + str(current_time_str)
+    # Create a new WAV file
+    with wave.open(wav_file_path, "wb") as wav_file:
+        # Set the WAV file parameters
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(sample_width)
+        wav_file.setframerate(sample_rate)
+
+        # Write the binary data to the WAV file
+        wav_file.writeframes(result)
+
+    return wav_file_path
 
 
 def do_processing_of_audio_file(audio_file_name):
