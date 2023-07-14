@@ -29,7 +29,7 @@ def get_audio_text(filename):
     print("received request for test")
     audio_text = ""
     conn = http.client.HTTPSConnection("eastasia.stt.speech.microsoft.com")
-    file_path = "/Users/devendra.choudhary/Downloads/Suryavamsam - Amitabh Bachchan Dialogue.wav"
+    file_path = filename
     with open(file_path, 'rb') as file:
         payload = file.read()
         headers = {
@@ -197,14 +197,57 @@ def test():
     return "test"
 
 
+def get_summary_of_product(text_for_voice):
+    conn = http.client.HTTPSConnection("hackmee1-fc.openai.azure.com")
+    payload = json.dumps({
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a shopping assistant. Reply in the language of the user. Reply like ShahRukhKhan would in Dilwale"
+            },
+            {
+                "role": "user",
+                "content": text_for_voice + " . Please describe this product in 50 words"
+            }
+        ],
+        "max_tokens": 800,
+        "temperature": 0.7,
+        "frequency_penalty": 0,
+        "presence_penalty": 0,
+        "top_p": 0.95,
+        "stop": None
+    })
+    headers = {
+        'Content-Type': 'application/json',
+        'api-key': 'a2f35be0feb04e2187945ef2e7c03b0b'
+    }
+    conn.request("POST", "/openai/deployments/MonkSquadGPT35/chat/completions?api-version=2023-03-15-preview", payload, headers)
+    res = conn.getresponse()
+    data = res.read()
+    print(data.decode("utf-8"))
+    response_data = json.loads(data.decode("utf-8"))
+    return response_data["choices"][0]['message']['content']
+
+
+def get_audio_file(text_for_voice):
+    pass
+
+
 def do_processing_of_audio_file(audio_file_name):
     print("received request for do_processing_of_audio_file")
     folder = "/Users/devendra.choudhary/IdeaProjects/monkai/"
     file_path = folder + audio_file_name
     audio_text = get_audio_text(file_path)
+    print("audio_text: ", audio_text)
     search_query = get_search_query(audio_text)
+    print("search_query: ", search_query)
     catalog_id = get_catalog_id_from_search_query(search_query)
-    text_for_voice = get_product_attribute_with_desc(catalog_id)
+    print("catalog_id: ", catalog_id)
+    raw_text_for_summary = get_product_attribute_with_desc(catalog_id)
+    print("raw_text_for_summary: ", raw_text_for_summary)
+    text_for_voice = get_summary_of_product(raw_text_for_summary)
+    print("text_for_voice: ", text_for_voice)
+    ayush_audio_file_name = get_audio_file(text_for_voice)
     return text_for_voice
 
 
@@ -227,29 +270,5 @@ def upload_file():
         return audio_text
 
 
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-@app.route('/uploadv2', methods=['GET', 'POST'])
-def upload_fileV2():
-    if request.method == 'POST':
-        # check if the post request has the file part
-        if 'file' not in request.files:
-            flash('No file part')
-            return redirect(request.url)
-        file = request.files['file']
-        # If the user does not select a file, the browser submits an
-        # empty file without a filename.
-        if file.filename == '':
-            flash('No selected file')
-            return redirect(request.url)
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            return redirect(url_for('download_file', name=filename))
-    return ''
-
 if __name__ == '__main__':
-    # ssl._create_default_https_context = ssl._create_unverified_context
     app.run(host='0.0.0.0', port=8080)
