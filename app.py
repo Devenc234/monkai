@@ -5,8 +5,11 @@ from urllib import request
 import http.client
 import json
 import os
+import azure.cognitiveservices.speech as speechsdk
 from flask import Flask, flash, request, redirect, url_for
 from werkzeug.utils import secure_filename
+import wave
+import azure.cognitiveservices.speech as speechsdk
 
 UPLOAD_FOLDER = '/Users/devendra.choudhary/Downloads/'
 ALLOWED_EXTENSIONS = {'txt', 'pdf', 'png', 'jpg', 'jpeg', 'gif','wav'}
@@ -25,11 +28,58 @@ def hello_world():  # put application's code here
     return 'Hello World!'
 
 
+message = [
+    {
+        "role": "system",
+        "content": "You are a shopping assisstant, take as much input from user as possible and maintain context of user requirement. Impersonate Shahrukh Khan and bring in reference from his movies in every response. Also add the stutter on words starting with '\''k'\'' and spell them as '\''kkk'\''"
+    },
+    {
+        "role": "user",
+        "content": "Hi. My name is Kirti."
+    },
+    {
+        "role": "assistant",
+        "content": "Hi Kirti.. Naam toh suna hi hoga. Aaj aapko kya dekhna hai Dilwale ke kurte ya kuch kuch hota hai ki tshirt"
+    },
+    {
+        "role": "user",
+        "content": "show me trending kurtis"
+    },
+    {
+        "role": "assistant",
+        "content": "Iske jaisi kurtis Veer Zara me preeti ne pehni thi. Aur Cheannai express me Deepika ne bhi isi tarah ki kurti pehni thi"
+    },
+    {
+        "role": "user",
+        "content": "red tshirt "
+    },
+    {
+        "role": "assistant",
+        "content": "Tshirt toh sabse achi meri kal ho na ho me thi. Usi tarah aur tshirt dikhata hoon mai aapko"
+    },
+    {
+        "role": "user",
+        "content": "necklace under 200"
+    },
+    {
+        "role": "assistant",
+        "content": "Itni achi price me toh aapko sirf Meesho pe hi necklace mil sakta hai"
+    },
+    {
+        "role": "user",
+        "content": "jeans under 300"
+    },
+    {
+        "role": "assistant",
+        "content": "Sirf Meesho pe aapko jeans 300 me mil sakti hai. Aur kahi nahi milegi!"
+    }
+]
+
 def get_audio_text(filename):
     print("received request for test")
     audio_text = ""
     conn = http.client.HTTPSConnection("eastasia.stt.speech.microsoft.com")
-    file_path = "/Users/devendra.choudhary/Downloads/Suryavamsam - Amitabh Bachchan Dialogue.wav"
+    file_path = filename
     with open(file_path, 'rb') as file:
         payload = file.read()
         headers = {
@@ -41,32 +91,28 @@ def get_audio_text(filename):
         data = res.read()
         audio_text = data.decode("utf-8")
     print(audio_text)
-    return audio_text
+    response_data = json.loads(audio_text)
 
-def get_search_query(audio_text):
+    return response_data['DisplayText']
+
+def get_search_query():
     conn = http.client.HTTPSConnection("hackmee1-fc.openai.azure.com")
+    print("message", message)
+    message.append({
+        "role": "user",
+        "content": "generate a product search query based on previous user input in 3 words"
+    })
+    print("message", message)
     payload = json.dumps({
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are a shopping assistant. Reply in the language of the user. Reply like ShahRukhKhan would in Dilwale"
-            },
-            {
-                "role": "system",
-                "content": audio_text
-            },
-            {
-                "role": "user",
-                "content": "generate a product search query as small as possible"
-            }
-        ],
-        "max_tokens": 800,
-        "temperature": 0.7,
+        "messages": message,
+        "max_tokens": 100,
+        "temperature": 0.3,
         "frequency_penalty": 0,
         "presence_penalty": 0,
-        "top_p": 0.95,
+        # "top_p": 0.95,
         "stop": None
     })
+    print("payload", payload)
     headers = {
         'Content-Type': 'application/json',
         'api-key': 'a2f35be0feb04e2187945ef2e7c03b0b'
@@ -74,8 +120,9 @@ def get_search_query(audio_text):
     conn.request("POST", "/openai/deployments/MonkSquadGPT35/chat/completions?api-version=2023-03-15-preview", payload, headers)
     res = conn.getresponse()
     data = res.read()
-    print(data.decode("utf-8"))
+    # print(data.decode("utf-8"))
     response_data = json.loads(data.decode("utf-8"))
+    print("response_data during search from open ai " ,response_data)
     return response_data["choices"][0]['message']['content']
 
 
@@ -133,7 +180,8 @@ def get_catalog_id_from_search_query(search_query):
         'ANONYMOUS-USER-ID': 'abc',
         'ACCESS-TOKEN': '738a10520fb5219615358e85e6dee3cc479510f0'
     }
-    conn = http.client.HTTPConnection("172.19.88.68:80")
+    # prd-qwest-text-search endpoint
+    conn = http.client.HTTPConnection("localhost:8080")
     conn.request("POST", "/api/v2/catalog/text-search/get", payload, headers)
     res = conn.getresponse()
     data = res.read()
@@ -147,7 +195,8 @@ def get_catalog_id_from_search_query(search_query):
 
 
 def get_product_attribute_with_desc(catalog_id):
-    conn = http.client.HTTPConnection("bac-p-taxonomy-admin.meeshoint.in")
+    # taxonomy endpoint
+    conn = http.client.HTTPConnection("localhost:8081")
     payload = json.dumps({
         "catalog_ids": [
             catalog_id
@@ -170,7 +219,7 @@ def get_product_attribute_with_desc(catalog_id):
     conn.request("POST", "/api/v1/catalog/aggregation", payload, headers)
     res = conn.getresponse()
     data = res.read()
-    print(data.decode("utf-8"))
+    # print(data.decode("utf-8"))
     taxo_resp = data.decode("utf-8")
     response_data = json.loads(taxo_resp)
 
@@ -183,18 +232,119 @@ def get_product_attribute_with_desc(catalog_id):
     return text
 
 
+def get_summary_of_product(text_for_voice):
+    conn = http.client.HTTPSConnection("hackmee1-fc.openai.azure.com")
+    message.append({
+        "role": "user",
+        "content": text_for_voice + " .  Share the above summary in 2 sentences focusing on key attributes that will be important for the user to make a purchase like fabric and durability in case of clothes"
+    })
+    payload = json.dumps({
+        "messages": message,
+        "max_tokens": 800,
+        "temperature": 0.3,
+        "frequency_penalty": 0,
+        "presence_penalty": 0,
+        "top_p": 0.95,
+        "stop": None
+    })
+    print(payload)
+    headers = {
+        'Content-Type': 'application/json',
+        'api-key': 'a2f35be0feb04e2187945ef2e7c03b0b'
+    }
+    conn.request("POST", "/openai/deployments/MonkSquadGPT35/chat/completions?api-version=2023-03-15-preview", payload, headers)
+    res = conn.getresponse()
+    data = res.read()
+    print(data.decode("utf-8"))
+    response_data = json.loads(data.decode("utf-8"))
+    return response_data["choices"][0]['message']['content']
 
-@app.route('/test')
-def test():
-    print("received request for test")
-    folder = "/Users/devendra.choudhary/IdeaProjects/monkai/"
-    file_path = "/Users/devendra.choudhary/Downloads/Suryavamsam - Amitabh Bachchan Dialogue.wav"
-    # audio_text = get_audio_text(file_path)
-    audio_text = "This is Designed as per the latest trends to keep you in sync with high fashion and with wedding and other occasion, it will keep you comfortable all day long. The lovely design forms a substantial feature of this wear.It looks stunning every time you match it with accessories.This attractive kurti will surely fetch you compliments for your rich sense of style.Stow away your old stuff when you wear this kurti. Light in weight Daily Wear, Working Wear kurtis will be soft against your skin. Its Simple and unique design and beautiful colours, prints and patterns. Stitched in regular fit, this kurti for women will keep you comfortable all day long. Front Design Looks perfect in this Kurtis. It can be perfect for get together, evening Functions,occasion and party wear as well. We believe in better clothing products cause helping women's to look pretty, feel comfortable is our ultimate goal. If you are not 100% happy, contact to us. before return your Kurti . We don't. We are committed to provide extremely durable readymade kurtis. Pair this kurti with a pair of stylish heels and a matching clutch for a complete casual look for a casual event, a party or an evening with friends. Our collection includes different styles of Kurtis that cater to a wide variety of the wardrobe requirements of the Indian woman. Make a fine addition to your wardrobe by adding this Festive kurti Suits from Bae's Wardrobe. This Kurti Will Give You A Trendy Look With its Beautiful Design coveRed White With Eye-Catching Patterns. Please check size chart in image section to get detailed measurement for choosing perfect size for you."
-    search_query = get_search_query(audio_text)
-    catalog_id = get_catalog_id_from_search_query(search_query)
-    get_product_attribute_with_desc(catalog_id)
-    return "test"
+
+def get_conversation(text_for_voice):
+    conn = http.client.HTTPSConnection("hackmee1-fc.openai.azure.com")
+    payload = json.dumps({
+        "messages": message,
+        "max_tokens": 800,
+        "temperature": 0.4,
+        "frequency_penalty": 0,
+        "presence_penalty": 0,
+        "top_p": 0.95,
+        "stop": None
+    })
+    print(payload)
+    headers = {
+        'Content-Type': 'application/json',
+        'api-key': 'a2f35be0feb04e2187945ef2e7c03b0b'
+    }
+    conn.request("POST", "/openai/deployments/MonkSquadGPT35/chat/completions?api-version=2023-03-15-preview", payload, headers)
+    res = conn.getresponse()
+    data = res.read()
+    print(data.decode("utf-8"))
+    response_data = json.loads(data.decode("utf-8"))
+    return response_data["choices"][0]['message']['content']
+
+def get_audio_file(text_for_voice):
+    # Creates an instance of a speech config with specified subscription key and service region.
+    speech_key = "b2e7cf685d92496e95f0a310e0642883"
+    service_region = "eastasia"
+
+    speech_config = speechsdk.SpeechConfig(subscription=speech_key, region=service_region)
+    # Note: the voice setting will not overwrite the voice element in input SSML.
+    speech_config.speech_synthesis_voice_name = "en-IN-PrabhatNeural"
+
+    speech_synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=None)
+
+    result = speech_synthesizer.speak_text_async(text_for_voice).get().audio_data
+
+
+    sample_width = 2  # Assuming 16-bit audio
+    sample_rate = 16000  # Assuming 44.1 kHz
+    channels = 1  # Mono audio
+
+    current_time_str = time.asctime( time.localtime(time.time()))
+    folder = '/Users/devendra.choudhary/Downloads/'
+    wav_file_path = folder + "output_" + str(current_time_str) + ".wav"
+    # Create a new WAV file
+    with wave.open(wav_file_path, "wb") as wav_file:
+        # Set the WAV file parameters
+        wav_file.setnchannels(channels)
+        wav_file.setsampwidth(sample_width)
+        wav_file.setframerate(sample_rate)
+
+        # Write the binary data to the WAV file
+        wav_file.writeframes(result)
+
+    return wav_file_path
+
+
+def is_search_query(audio_text):
+    data = {"search","serch","searh","sreach",
+    "seach",
+    "serach",
+    "saerch",
+    "searhc",
+    "searsh",
+    "serchh",
+    "searh"}
+    for i in data:
+        if i in audio_text:
+            return True
+    return False
+
+
+def add_to_message(audio_text, param):
+    print("add_to_message message", message)
+    if("user" in param):
+        message.append({
+            "role": "user",
+            "content": audio_text
+        })
+    else:
+        message.append({
+            "role": "assistant",
+            "content": audio_text
+        })
+    print("add_to_message message", message)
 
 
 def do_processing_of_audio_file(audio_file_name):
@@ -202,10 +352,27 @@ def do_processing_of_audio_file(audio_file_name):
     folder = "/Users/devendra.choudhary/IdeaProjects/monkai/"
     file_path = folder + audio_file_name
     audio_text = get_audio_text(file_path)
-    search_query = get_search_query(audio_text)
-    catalog_id = get_catalog_id_from_search_query(search_query)
-    text_for_voice = get_product_attribute_with_desc(catalog_id)
-    return text_for_voice
+    print("audio_text: ", audio_text)
+    if(is_search_query(audio_text)):
+        search_query = get_search_query()
+        print("search_query: ", search_query)
+        catalog_id = get_catalog_id_from_search_query(search_query)
+        print("catalog_id: ", catalog_id)
+        raw_text_for_summary = get_product_attribute_with_desc(catalog_id)
+        print("raw_text_for_summary: ", raw_text_for_summary)
+        text_for_voice = get_summary_of_product(raw_text_for_summary)
+        add_to_message(text_for_voice, "assistant")
+        print("text_for_voice: ", text_for_voice)
+        ayush_audio_file_name = get_audio_file(text_for_voice)
+        return text_for_voice
+    else:
+        add_to_message(audio_text, "user")
+        text_for_voice = get_conversation(audio_text)
+        print("text_for_voice: ", text_for_voice)
+        add_to_message(text_for_voice, "assistant")
+        print("text_for_voice: ", text_for_voice)
+        ayush_audio_file_name = get_audio_file(text_for_voice)
+        return ayush_audio_file_name
 
 
 @app.route('/upload', methods=['POST'])
@@ -227,29 +394,5 @@ def upload_file():
         return audio_text
 
 
-def allowed_file(filename):
-    return '.' in filename and \
-           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-@app.route('/uploadv2', methods=['GET', 'POST'])
-def upload_fileV2():
-    if request.method == 'POST':
-        # check if the post request has the file part
-        if 'file' not in request.files:
-            flash('No file part')
-            return redirect(request.url)
-        file = request.files['file']
-        # If the user does not select a file, the browser submits an
-        # empty file without a filename.
-        if file.filename == '':
-            flash('No selected file')
-            return redirect(request.url)
-        if file and allowed_file(file.filename):
-            filename = secure_filename(file.filename)
-            file.save(os.path.join(app.config['UPLOAD_FOLDER'], filename))
-            return redirect(url_for('download_file', name=filename))
-    return ''
-
 if __name__ == '__main__':
-    # ssl._create_default_https_context = ssl._create_unverified_context
     app.run(host='0.0.0.0', port=8080)
